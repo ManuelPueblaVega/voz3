@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Diario de Voz con Historial</title>
+  <!-- Cargar Tailwind CSS desde un CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body {
+      background: linear-gradient(135deg, #f3f4f6, #e5e7eb);
+      font-family: Arial, sans-serif;
+    }
+  </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+  <div class="bg-white shadow-lg rounded-lg p-6 max-w-3xl w-full">
+    <h1 class="text-3xl font-bold text-center mb-6">Diario de Voz con Historial</h1>
+    <div class="flex flex-col md:flex-row">
+      <!-- Sección de grabación y resultados -->
+      <div class="md:w-1/2 p-4 border-r border-gray-300">
+        <p class="text-center text-gray-600 mb-4">Graba tu voz y obtén la transcripción.</p>
+        <div class="flex justify-center mb-4">
+          <button id="iniciarGrabacion" class="bg-blue-500 text-white px-6 py-2 rounded mr-2">
+            Iniciar Grabación
+          </button>
+          <button id="detenerGrabacion" class="bg-red-500 text-white px-6 py-2 rounded hidden">
+            Detener Grabación
+          </button>
+        </div>
+        <div id="resultado" class="mt-4 flex flex-col items-center">
+          <!-- Se mostrará la grabación actual, la transcripción y la fecha -->
+        </div>
+      </div>
+      <!-- Sección de historial -->
+      <div class="md:w-1/2 p-4">
+        <h2 class="text-2xl font-bold mb-4 text-center">Historial</h2>
+        <div id="historial" class="space-y-4 overflow-auto max-h-96">
+          <!-- Se mostrarán las entradas guardadas -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let mediaRecorder;
+    let audioChunks = [];
+    let recognition;
+    let transcriptFinal = '';
+    const iniciarBtn = document.getElementById('iniciarGrabacion');
+    const detenerBtn = document.getElementById('detenerGrabacion');
+    const resultadoDiv = document.getElementById('resultado');
+    const historialDiv = document.getElementById('historial');
+    const STORAGE_KEY = 'historialVoz';
+
+    // Configurar la API de reconocimiento de voz (Web Speech API)
+    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+      alert('Tu navegador no soporta la API de reconocimiento de voz.');
+    } else {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recognition = new SpeechRecognition();
+      recognition.lang = 'es-ES';
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.maxAlternatives = 1;
+
+      recognition.addEventListener('result', (event) => {
+        transcriptFinal = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          transcriptFinal += event.results[i][0].transcript;
+        }
+      });
+
+      recognition.addEventListener('error', (event) => {
+        console.error('Error en el reconocimiento de voz:', event.error);
+      });
+    }
+
+    // Función para actualizar el historial en pantalla leyendo LocalStorage
+    function actualizarHistorial() {
+      const historial = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+      historialDiv.innerHTML = '';
+      if (historial.length === 0) {
+        historialDiv.innerHTML = '<p class="text-gray-500 text-center">No hay registros en el historial.</p>';
+      } else {
+        // Mostrar los registros (último primero)
+        historial.slice().reverse().forEach((entrada) => {
+          const entryDiv = document.createElement('div');
+          entryDiv.className = 'p-4 border rounded shadow bg-gray-50';
+          
+          const fechaP = document.createElement('p');
+          fechaP.className = 'text-sm text-gray-500';
+          fechaP.textContent = entrada.fecha;
+          
+          const transcripcionP = document.createElement('p');
+          transcripcionP.className = 'mt-2 text-gray-700';
+          transcripcionP.textContent = entrada.transcripcion ? entrada.transcripcion : 'Sin transcripción';
+          
+          const playButton = document.createElement('button');
+          playButton.textContent = 'Reproducir';
+          playButton.className = 'mt-2 bg-blue-500 text-white px-4 py-1 rounded';
+          playButton.addEventListener('click', () => {
+            const audio = document.createElement('audio');
+            audio.controls = true;
+            audio.src = entrada.audio;
+            // Mostrar el audio en la sección de resultados
+            resultadoDiv.innerHTML = '';
+            resultadoDiv.appendChild(audio);
+            const infoDiv = document.createElement('p');
+            infoDiv.className = 'mt-2 text-sm text-gray-500';
+            infoDiv.textContent = 'Registrado el: ' + entrada.fecha;
+            resultadoDiv.appendChild(infoDiv);
+            const transDiv = document.createElement('p');
+            transDiv.className = 'mt-2 text-gray-700';
+            transDiv.textContent = 'Transcripción: ' + (entrada.transcripcion || 'Sin transcripción');
+            resultadoDiv.appendChild(transDiv);
+          });
+          
+          entryDiv.appendChild(fechaP);
+          entryDiv.appendChild(transcripcionP);
+          entryDiv.appendChild(playButton);
+          historialDiv.appendChild(entryDiv);
+        });
+      }
+    }
+
+    // Función para iniciar la grabación y el reconocimiento
+    async function iniciarGrabacion() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+
+        mediaRecorder.addEventListener("dataavailable", event => {
+          audioChunks.push(event.data);
+        });
+
+        mediaRecorder.addEventListener("stop", () => {
+          const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+          const audioUrl = URL.createObjectURL(audioBlob);
+          const audio = document.createElement("audio");
+          audio.controls = true;
+          audio.src = audioUrl;
+
+          // Obtener fecha y hora actual formateada
+          const fechaRegistro = new Date();
+          const opciones = { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric', 
+            hour: '2-digit', 
+            minute: '2-digit', 
+            second: '2-digit' 
+          };
+          const fechaFormateada = fechaRegistro.toLocaleDateString('es-ES', opciones);
+
+          // Mostrar el resultado de la grabación
+          resultadoDiv.innerHTML = "";
+          resultadoDiv.appendChild(audio);
+          const infoFecha = document.createElement("p");
+          infoFecha.className = "text-sm text-gray-500 mt-2";
+          infoFecha.textContent = "Registrado el: " + fechaFormateada;
+          resultadoDiv.appendChild(infoFecha);
+          const transcripcionP = document.createElement("p");
+          transcripcionP.className = "mt-2 text-gray-700 text-center";
+          transcripcionP.textContent = "Transcripción: " + (transcriptFinal || "No se pudo transcribir la voz.");
+          resultadoDiv.appendChild(transcripcionP);
+
+          // Guardar el registro en el historial de LocalStorage
+          const registro = { audio: audioUrl, fecha: fechaFormateada, transcripcion: transcriptFinal };
+          const historial = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+          historial.push(registro);
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(historial));
+          actualizarHistorial();
+
+          // Reiniciar la transcripción para la siguiente grabación
+          transcriptFinal = '';
+        });
+
+        mediaRecorder.start();
+        recognition.start();
+      } catch (error) {
+        console.error("Error accediendo al micrófono", error);
+        alert("No se pudo acceder al micrófono. Asegúrate de haber otorgado permisos.");
+      }
+    }
+
+    iniciarBtn.addEventListener('click', () => {
+      iniciarGrabacion();
+      iniciarBtn.classList.add('hidden');
+      detenerBtn.classList.remove('hidden');
+    });
+
+    detenerBtn.addEventListener('click', () => {
+      if (mediaRecorder && mediaRecorder.state !== "inactive") {
+        mediaRecorder.stop();
+        recognition.stop();
+        iniciarBtn.classList.remove('hidden');
+        detenerBtn.classList.add('hidden');
+      }
+    });
+
+    // Actualizar el historial al cargar la página
+    actualizarHistorial();
+  </script>
+</body>
+</html>
